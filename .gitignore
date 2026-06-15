@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.codegraph/
+.DS_Store
+# saved prompts live at the Wan2GP root, but ignore a stray copy here too
+.mediagen_promptlib.json

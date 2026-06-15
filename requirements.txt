@@ -1,0 +1,3 @@
+# Prompt Library has no third-party dependencies of its own — it relies entirely
+# on things Wan2GP already ships (gradio, plus the host's plugin API in
+# shared/utils/plugins.py). Nothing to install.
