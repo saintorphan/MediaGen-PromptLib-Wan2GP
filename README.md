@@ -85,10 +85,18 @@ an error instead of a false "saved":
 
 ## Install
 
-Use the Wan2GP **Plugin Manager → add from GitHub URL** flow with this repo's
-URL, then enable **Prompt Library** and restart Wan2GP. Open the Media Generation
+In Wan2GP, open the **Plugin Manager → add from GitHub URL** and paste:
+
+```
+https://github.com/saintorphan/MediaGen-PromptLib-Wan2GP
+```
+
+Then enable **Prompt Library** and restart Wan2GP. Open the Media Generation
 tab — the collapsible **📚 Prompt Library** panel sits directly below the
 Generate button.
+
+No extra Python packages to install (it uses only what Wan2GP already ships).
+Built and tested against Wan2GP 12.23.
 
 ## License
 
