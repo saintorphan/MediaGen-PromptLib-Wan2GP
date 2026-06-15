@@ -1,9 +1,9 @@
 # Prompt Library — a Wan2GP plugin
 
 A standalone, **model-agnostic prompt library** that lives right inside the
-**Media Generation** tab — a collapsible panel injected just above the Lora
-Profile (lset) shortcuts at the top. Save the prompts you like, recall them with
-one click, and optionally carry a full set of generation parameters along for the
+**Media Generation** tab — a collapsible **📚 Prompt Library** panel directly
+below the **Generate** button. Save the prompts you like, recall them with one
+click, and optionally carry a full set of generation parameters along for the
 ride.
 
 Unlike the Lora Profile shortcuts (which are tied to LoRA sets), the Prompt
@@ -20,36 +20,53 @@ used for."*
 
 ## Features
 
-- **📚 Prompt Library panel** — a collapsible accordion at the top of the Media
-  Generation tab, above the Lora Profile shortcuts.
+- **📚 Prompt Library panel** — a collapsible panel in the Media Generation tab,
+  directly below the Generate button.
 - **💾 Save Current Prompts** — store the current prompt + negative prompt under a
-  name. The entry is tagged with the model you currently have selected.
+  name. The prompt + negative are read **live** from the boxes, so what you've
+  just typed is what gets saved. The entry is tagged with the model you currently
+  have selected. Saving under an existing name overwrites it (the status says
+  *Overwrote*); there's no separate rename — save under a new name and delete the
+  old one.
 - **Preserve all parameters** *(optional tickbox)* — also snapshot every
   generation setting (steps, guidance, resolution, seed, sampler, LoRAs, sliding
   window, post-process…) so a full setup can be reproduced. Off by default →
   prompt + negative only. Reference media (start / ref images, control video /
-  audio, masks) is never stored.
+  audio, masks) is never stored. **Note:** unlike the prompt + negative, these
+  parameters are taken from the *last applied* settings, so click **Generate** or
+  **Save Settings** first to commit any slider changes you want captured.
 - **⟳ Update** — overwrite the selected entry with the current prompts (and
   parameters, if the tickbox is on).
 - **📥 Populate Fields** — load the selected entry back into the Media Generation
   form: the prompt + negative always, plus every saved parameter when the entry
   was saved with *Preserve all parameters*. The model is **not** switched — the
-  prompt drops onto whatever model you're on now.
+  prompt drops onto whatever model you're on now. Because preserved parameters
+  aren't model-specific, populating a *preserve-all* entry applies that entry's
+  settings wholesale onto the current model (identity and media keys are filtered
+  out); adjust anything that doesn't fit the new model before generating.
 - **🗑 Delete** — remove the selected entry.
-- **Model tag** — the model an entry was saved for is shown beside the status line
-  when you select it, so you always know its origin without it constraining use.
+- **Model tag** — selecting a saved entry shows, on its own line below the status
+  message, the model the entry was saved for, so you always know its origin
+  without it constraining use.
 
 ## How it works
 
-The panel is injected with the host plugin API's `insert_after`, anchored to the
-`image-modal-container` element so it lands immediately above the lset shortcuts
-row. Saving and populating read / write the **live per-model settings dict** via
-the host's `get_current_model_settings`, and a populate pings the
-`refresh_form_trigger` so the form rebuilds from the updated settings — the same
-plumbing the bundled `sample` plugin uses. No host files are modified.
+The panel is injected with the host plugin API's `insert_after`. The host
+resolves the target against the **local variable names** of `generate_media_tab`
+(it passes `locals()` as the component map), so the anchor is `generate_btn` —
+the "Generate" button, whose parent is the form's main column. Inserting a
+sibling there drops our collapsible panel directly below it. **Save** reads the
+live `prompt` / `negative_prompt` textboxes directly (requested as components) so
+it captures what's typed, plus the last-applied settings via the host's
+`get_current_model_settings` when *Preserve all parameters* is on. **Populate**
+writes the per-model settings dict and pings `refresh_form_trigger` so the form
+rebuilds from the updated settings. No host files are modified.
 
 Saved prompts persist to `.mediagen_promptlib.json` at the Wan2GP root (outside
-this plugin's repo), as a single shared collection:
+this plugin's repo), as a single shared collection. Writes are atomic (temp file
++ `os.replace`) and an unreadable file is backed up rather than overwritten, so a
+crash or bad hand-edit can't silently wipe your library; a failed write reports
+an error instead of a false "saved":
 
 ```json
 {
@@ -70,7 +87,8 @@ this plugin's repo), as a single shared collection:
 
 Use the Wan2GP **Plugin Manager → add from GitHub URL** flow with this repo's
 URL, then enable **Prompt Library** and restart Wan2GP. Open the Media Generation
-tab — the **📚 Prompt Library** accordion is at the top.
+tab — the collapsible **📚 Prompt Library** panel sits directly below the
+Generate button.
 
 ## License
 

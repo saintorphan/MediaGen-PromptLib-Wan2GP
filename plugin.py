@@ -1,16 +1,18 @@
 """MediaGen Prompt Library — a Wan2GP plugin.
 
-A standalone, model-agnostic prompt library injected straight into the **Media
-Generation** tab, just above the Lora Profile (lset) shortcuts at the top. Save
-the current prompt + negative — optionally every generation parameter too —
-tagged with the model selected at save time, then **Populate Fields** to load any
-saved entry back onto whatever model is currently selected.
+A standalone, model-agnostic prompt library added as a collapsible panel in the
+**Media Generation** tab, directly below the **Generate** button. Save the
+current prompt + negative — optionally every generation parameter too — tagged
+with the model selected at save time, then **Populate Fields** to load any saved
+entry back onto whatever model is currently selected.
 
 Prompts are NOT model-specific: the model tag only records what an entry was
 *made for*; you can populate it onto any model. Reference media isn't stored.
 
-Mechanism: the panel reads / writes the live per-model settings dict via the
-host's ``get_current_model_settings`` and forces a form refresh by pinging the
+Mechanism: Save reads the live prompt / negative textboxes directly (requested as
+components) so it captures what's typed, plus — when "preserve all parameters" is
+on — the last-applied generation settings via ``get_current_model_settings``.
+Populate writes the per-model settings dict and forces a form refresh by pinging
 ``refresh_form_trigger`` (the same plumbing the bundled sample plugin uses).
 
 NOTE: not an official plugin. Distribute via the plugin-manager "add from GitHub
@@ -27,14 +29,15 @@ from shared.utils.plugins import WAN2GPPlugin
 
 from .core import store
 
-PLUGIN_ID = "MediaGenPromptLib"
 PLUGIN_NAME = "Prompt Library"
 
-# Injection anchor: the (hidden) image-modal Column that sits immediately ABOVE
-# the Lora Profile (lset) shortcuts Row in the Media Generation tab — they are
-# siblings in the same parent column, so insert_after drops our panel between
-# them, i.e. above the shortcuts (see wgp.py generate_media_tab).
-_ANCHOR = "image-modal-container"
+# Injection anchor. The host resolves insert_after targets against the LOCAL
+# VARIABLE NAMES of generate_media_tab (it passes locals() as the component map —
+# see wgp.py `app.run_component_insertion(locals())`), NOT against elem_id.
+# `generate_btn` is the "Generate" gr.Button; its parent is the form's main
+# vertical Column, so inserting a sibling there drops our panel directly below
+# the Generate button — always visible, no Advanced Mode needed.
+_ANCHOR = "generate_btn"
 
 _HELP = (
     "Save the current **prompt** + **negative** — optionally **all** generation "
@@ -48,7 +51,7 @@ class MediaGenPromptLibrary(WAN2GPPlugin):
     def __init__(self):
         super().__init__()
         self.name = PLUGIN_NAME
-        self.version = "0.1.0"
+        self.version = "0.2.0"
         self.description = (
             "Standalone, model-agnostic prompt library in the Media Generation "
             "tab: save / update / populate / delete prompts, optionally preserving "
@@ -60,10 +63,17 @@ class MediaGenPromptLibrary(WAN2GPPlugin):
         # Live-form plumbing (the handles the bundled sample plugin uses).
         self.request_component("state")
         self.request_component("refresh_form_trigger")
+        # The live prompt textboxes, so Save captures what the user has TYPED
+        # rather than the last value committed to the settings dict (which only
+        # syncs on Generate / Save Settings). These are local-var names in
+        # generate_media_tab (wgp.py: `prompt`, `negative_prompt`); if a future
+        # host renames them the panel falls back to the settings dict.
+        self.request_component("prompt")
+        self.request_component("negative_prompt")
         self.request_global("get_current_model_settings")
         self.request_global("get_state_model_type")
         self.request_global("get_model_name")
-        # Drop our panel above the Lora Profile shortcuts.
+        # Drop our panel directly below the Generate button.
         self.insert_after(_ANCHOR, self._build_panel)
 
     # -- helpers ------------------------------------------------------------
@@ -83,6 +93,15 @@ class MediaGenPromptLibrary(WAN2GPPlugin):
         return settings, model_type, model_name
 
     @staticmethod
+    def _live_prompt(settings, live):
+        """Prefer the live prompt/negative textbox values (passed as click
+        inputs); fall back to the committed settings dict if those components
+        weren't available to request."""
+        prompt = live[0] if len(live) >= 1 and live[0] is not None else settings.get("prompt", "")
+        negative = live[1] if len(live) >= 2 and live[1] is not None else settings.get("negative_prompt", "")
+        return prompt, negative
+
+    @staticmethod
     def _msg(text):
         return gr.update(value=text)
 
@@ -98,34 +117,40 @@ class MediaGenPromptLibrary(WAN2GPPlugin):
     def _build_panel(self):
         state = self.state
         trigger = self.refresh_form_trigger
+        # Live prompt/negative textboxes, if the host exposed them. Passed as
+        # click inputs so Save reads what's typed now, not the committed dict.
+        live_components = [c for c in (getattr(self, "prompt", None),
+                                       getattr(self, "negative_prompt", None)) if c is not None]
 
-        def _save(state, name, preserve):
+        def _save(state, name, preserve, *live):
             name = (name or "").strip()
             if not name:
                 return gr.update(), self._msg("Enter a name first.")
             try:
                 settings, mtype, mname = self._current(state)
-                entry = store.make_entry(
-                    settings.get("prompt", ""), settings.get("negative_prompt", ""),
-                    mtype, mname, settings if preserve else None,
-                )
+                prompt, negative = self._live_prompt(settings, live)
+                existed = name in store.names()
+                entry = store.make_entry(prompt, negative, mtype, mname, settings if preserve else None)
                 choices = store.save(name, entry)
-                return gr.update(choices=choices, value=name), self._msg(f"Saved “{name}”. {self._tag(entry)}")
+                if choices is None:
+                    return gr.update(), self._msg("Save failed — could not write to disk (see console).")
+                verb = "Overwrote" if existed else "Saved"
+                return gr.update(choices=choices, value=name), self._msg(f"{verb} “{name}”.")
             except Exception:
                 traceback.print_exc()
                 return gr.update(), self._msg("Save failed — see console.")
 
-        def _update(state, sel, preserve):
+        def _update(state, sel, preserve, *live):
             if not sel:
                 return gr.update(), self._msg("Pick a saved entry to update.")
             try:
                 settings, mtype, mname = self._current(state)
-                entry = store.make_entry(
-                    settings.get("prompt", ""), settings.get("negative_prompt", ""),
-                    mtype, mname, settings if preserve else None,
-                )
+                prompt, negative = self._live_prompt(settings, live)
+                entry = store.make_entry(prompt, negative, mtype, mname, settings if preserve else None)
                 choices = store.save(sel, entry)
-                return gr.update(choices=choices, value=sel), self._msg(f"Updated “{sel}”. {self._tag(entry)}")
+                if choices is None:
+                    return gr.update(), self._msg("Update failed — could not write to disk (see console).")
+                return gr.update(choices=choices, value=sel), self._msg(f"Updated “{sel}”.")
             except Exception:
                 traceback.print_exc()
                 return gr.update(), self._msg("Update failed — see console.")
@@ -134,6 +159,8 @@ class MediaGenPromptLibrary(WAN2GPPlugin):
             if not sel:
                 return gr.update(), self._msg("Pick a saved entry to delete.")
             choices = store.delete(sel)
+            if choices is None:
+                return gr.update(), self._msg("Delete failed — could not write to disk (see console).")
             return gr.update(choices=choices, value=None), self._msg(f"Deleted “{sel}”.")
 
         def _populate(state, sel):
@@ -147,13 +174,16 @@ class MediaGenPromptLibrary(WAN2GPPlugin):
                 settings["prompt"] = entry.get("prompt", "")
                 settings["negative_prompt"] = entry.get("negative_prompt", "")
                 applied = ""
-                params = entry.get("params")
-                if isinstance(params, dict):
+                # Filter the saved params on LOAD the same way Save filters them,
+                # so a hand-edited / shared library file can't inject identity,
+                # media, or non-scalar keys into the live settings dict.
+                params = store.sanitize_params(entry.get("params"))
+                if params:
                     for k, v in params.items():
                         settings[k] = v
                     applied = f" + {len(params)} parameter(s)"
                 # New timestamp -> refresh_form_trigger.change -> fill_inputs rebuilds the form.
-                return time.time(), self._msg(f"Populated prompts{applied} from “{sel}”. {self._tag(entry)}")
+                return time.time(), self._msg(f"Populated prompts{applied} from “{sel}”.")
             except Exception:
                 traceback.print_exc()
                 return gr.update(), self._msg("Populate failed — see console.")
@@ -161,6 +191,9 @@ class MediaGenPromptLibrary(WAN2GPPlugin):
         def _on_select(sel):
             return self._msg(self._tag(store.get(sel)) if sel else "")
 
+        # Our parent is the form's main Column, so a collapsible Accordion is the
+        # right container — one new child, which the host pops + re-inserts right
+        # after the Generate button.
         with gr.Accordion(f"📚 {PLUGIN_NAME}", open=False) as panel:
             gr.Markdown(_HELP)
             with gr.Row():
@@ -169,20 +202,27 @@ class MediaGenPromptLibrary(WAN2GPPlugin):
             pl_preserve = gr.Checkbox(
                 label="Preserve all parameters", value=False,
                 info="Also snapshot every generation setting (steps, guidance, "
-                     "resolution, seed, LoRAs…). Off = prompt + negative only.",
+                     "resolution, seed, LoRAs…); these come from the last applied "
+                     "settings, so click Generate or Save Settings first to commit "
+                     "slider changes. Off = prompt + negative only (always live).",
             )
             with gr.Row():
                 pl_save = gr.Button("💾 Save Current Prompts", size="sm")
                 pl_update = gr.Button("⟳ Update", size="sm")
                 pl_populate = gr.Button("📥 Populate Fields", variant="primary", size="sm")
                 pl_delete = gr.Button("🗑 Delete", variant="stop", size="sm")
-            pl_status = gr.Markdown("")
+            pl_status = gr.Markdown("")  # action feedback (Saved / Deleted / errors)
+            pl_tag = gr.Markdown("")     # model tag of the selected entry
 
-            pl_save.click(_save, inputs=[state, pl_name, pl_preserve], outputs=[pl_saved, pl_status])
-            pl_update.click(_update, inputs=[state, pl_saved, pl_preserve], outputs=[pl_saved, pl_status])
+            save_inputs = [state, pl_name, pl_preserve, *live_components]
+            update_inputs = [state, pl_saved, pl_preserve, *live_components]
+            pl_save.click(_save, inputs=save_inputs, outputs=[pl_saved, pl_status])
+            pl_update.click(_update, inputs=update_inputs, outputs=[pl_saved, pl_status])
             pl_delete.click(_delete, inputs=[pl_saved], outputs=[pl_saved, pl_status])
             pl_populate.click(_populate, inputs=[state, pl_saved], outputs=[trigger, pl_status])
-            pl_saved.change(_on_select, inputs=[pl_saved], outputs=[pl_status])
+            # Selecting an entry updates a SEPARATE tag line, so it never clobbers
+            # the Save/Delete confirmation in pl_status.
+            pl_saved.change(_on_select, inputs=[pl_saved], outputs=[pl_tag])
 
         return panel
 

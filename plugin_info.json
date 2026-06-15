@@ -1,10 +1,10 @@
 {
   "name": "Prompt Library",
   "author": "saintorphan",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Standalone, model-agnostic prompt library in the Media Generation tab: save / update / populate / delete prompts, optionally preserving every generation parameter, each tagged with the model selected when it was saved.",
-  "date": "2026-06-14",
-  "wan2gp_version": "11.90",
+  "date": "2026-06-15",
+  "wan2gp_version": "12.23",
   "license": "WanGP Community License 2.0",
   "url": "https://github.com/saintorphan/MediaGen-PromptLib-Wan2GP",
   "type": ["extension"],
