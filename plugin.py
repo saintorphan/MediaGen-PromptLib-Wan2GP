@@ -189,7 +189,9 @@ class MediaGenPromptLibrary(WAN2GPPlugin):
                 return gr.update(), self._msg("Populate failed — see console.")
 
         def _on_select(sel):
-            return self._msg(self._tag(store.get(sel)) if sel else "")
+            entry = store.get(sel) if sel else None
+            preview = entry.get("prompt", "") if entry else ""
+            return self._msg(self._tag(entry)), gr.update(value=preview)
 
         # Our parent is the form's main Column, so a collapsible Accordion is the
         # right container — one new child, which the host pops + re-inserts right
@@ -199,6 +201,10 @@ class MediaGenPromptLibrary(WAN2GPPlugin):
             with gr.Row():
                 pl_name = gr.Textbox(label="Name", placeholder="e.g. moody portrait", scale=2)
                 pl_saved = gr.Dropdown(label="Saved prompts", choices=store.names(), value=None, scale=2)
+            pl_preview = gr.Textbox(
+                label="Prompt preview", interactive=False, lines=2, max_lines=6,
+                show_copy_button=True, info="Positive prompt of the selected entry.",
+            )
             pl_preserve = gr.Checkbox(
                 label="Preserve all parameters", value=False,
                 info="Also snapshot every generation setting (steps, guidance, "
@@ -220,9 +226,10 @@ class MediaGenPromptLibrary(WAN2GPPlugin):
             pl_update.click(_update, inputs=update_inputs, outputs=[pl_saved, pl_status])
             pl_delete.click(_delete, inputs=[pl_saved], outputs=[pl_saved, pl_status])
             pl_populate.click(_populate, inputs=[state, pl_saved], outputs=[trigger, pl_status])
-            # Selecting an entry updates a SEPARATE tag line, so it never clobbers
-            # the Save/Delete confirmation in pl_status.
-            pl_saved.change(_on_select, inputs=[pl_saved], outputs=[pl_tag])
+            # Selecting an entry previews its positive prompt and updates a
+            # SEPARATE tag line, so it never clobbers the Save/Delete
+            # confirmation in pl_status.
+            pl_saved.change(_on_select, inputs=[pl_saved], outputs=[pl_tag, pl_preview])
 
         return panel
 

@@ -45,6 +45,9 @@ used for."*
   settings wholesale onto the current model (identity and media keys are filtered
   out); adjust anything that doesn't fit the new model before generating.
 - **🗑 Delete** — remove the selected entry.
+- **Prompt preview** — selecting a saved entry shows its **positive prompt** in a
+  read-only preview box, so you can check what you're about to load before
+  populating.
 - **Model tag** — selecting a saved entry shows, on its own line below the status
   message, the model the entry was saved for, so you always know its origin
   without it constraining use.
