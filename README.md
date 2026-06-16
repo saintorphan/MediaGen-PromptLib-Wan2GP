@@ -66,7 +66,9 @@ writes the per-model settings dict and pings `refresh_form_trigger` so the form
 rebuilds from the updated settings. No host files are modified.
 
 Saved prompts persist to `.mediagen_promptlib.json` at the Wan2GP root (outside
-this plugin's repo), as a single shared collection. Writes are atomic (temp file
+this plugin's repo), as a single shared collection. The plugin ships with **no
+prompts** — your library starts empty and the file is created on your first save.
+Writes are atomic (temp file
 + `os.replace`) and an unreadable file is backed up rather than overwritten, so a
 crash or bad hand-edit can't silently wipe your library; a failed write reports
 an error instead of a false "saved":
