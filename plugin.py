@@ -60,6 +60,10 @@ class MediaGenPromptLibrary(WAN2GPPlugin):
 
     # -- lifecycle ----------------------------------------------------------
     def setup_ui(self):
+        # Before anything else: launch()'s localhost probe must survive however
+        # many components the enabled plugins add in total (this panel is small,
+        # but the shim guards the combined app).
+        self._install_patient_localhost_probe()
         # Live-form plumbing (the handles the bundled sample plugin uses).
         self.request_component("state")
         self.request_component("refresh_form_trigger")
@@ -75,6 +79,72 @@ class MediaGenPromptLibrary(WAN2GPPlugin):
         self.request_global("get_model_name")
         # Drop our panel directly below the Generate button.
         self.insert_after(_ANCHOR, self._build_panel)
+
+    @staticmethod
+    def _install_patient_localhost_probe():
+        """Give Gradio's launch-time localhost probe a patient last attempt so a
+        plugin-enlarged UI can't crash Wan2GP at startup.
+
+        demo.launch() aborts with "When localhost is not accessible, a shareable
+        link must be created" whenever networking.url_ok times out probing "/"
+        (httpx.head, 3-second timeout, 5 tries). Serving "/" deep-copies the
+        whole Blocks config and filters components per page with an O(N²)
+        list-membership test, so a big enough UI (Wan2GP plus a few plugin tabs;
+        ~30k components on a fast box, far fewer on a slow one) needs >3s for
+        its first response and launch() dies even though the server is healthy
+        (reported on Pinokio/Windows with this plugin + ImageSuite enabled).
+        After the stock probe gives up, retry loopback URLs once with a long
+        timeout — and proxies bypassed, since localhost must not be routed
+        through HTTP_PROXY. Patience applies to loopback URLs only: Gradio also
+        polls url_ok on share-tunnel URLs (blocks.py share loop), and those keep
+        stock behavior. A genuinely dead localhost still fails fast —
+        connection-refused returns immediately in both passes.
+
+        Identical to the shim in ImageSuite-Wan2GP; both sentinels are checked
+        AND set so whichever plugin loads first installs the probe and the other
+        backs off (ImageSuite's copy only checks its own). Idempotent."""
+        try:
+            import httpx
+            from gradio import networking
+        except Exception:
+            print(">>> Prompt Library: could not locate gradio.networking; "
+                  "leaving the localhost probe untouched. <<<", flush=True)
+            traceback.print_exc()
+            return
+        if (getattr(networking, "_imagesuite_patient_url_ok", False)
+                or getattr(networking, "_promptlib_patient_url_ok", False)):
+            return
+        _orig = getattr(networking, "url_ok", None)
+        if _orig is None:
+            print(">>> Prompt Library: gradio.networking.url_ok is gone; "
+                  "leaving the localhost probe untouched. <<<", flush=True)
+            return
+
+        _LOCAL = ("http://localhost", "http://127.", "http://[::1]",
+                  "http://0.0.0.0")
+
+        def _patient_url_ok(url: str) -> bool:
+            if _orig(url):
+                return True
+            if not str(url).lower().startswith(_LOCAL):
+                return False
+            print(">>> Prompt Library: Gradio's localhost probe timed out (a "
+                  "large UI is slow to serve its first page); retrying with a "
+                  "60s timeout... <<<", flush=True)
+            try:
+                r = httpx.head(url, timeout=60, verify=False, trust_env=False)
+            except Exception:
+                return False
+            # Mirror the status set gradio 5.29 accepts (401/302 when auth is
+            # set; 303/307 as temporary-redirect alternatives).
+            return r.status_code in (200, 401, 302, 303, 307)
+
+        networking.url_ok = _patient_url_ok
+        networking._imagesuite_patient_url_ok = True
+        networking._promptlib_patient_url_ok = True
+        print(">>> Prompt Library: patient localhost probe installed "
+              "(prevents 'When localhost is not accessible' on large UIs) <<<",
+              flush=True)
 
     # -- helpers ------------------------------------------------------------
     def _current(self, state):
